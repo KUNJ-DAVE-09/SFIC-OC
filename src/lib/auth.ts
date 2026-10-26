@@ -56,8 +56,6 @@ export const authOptions: NextAuthOptions = {
   },
   session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
-  // Trust the host header — critical for Vercel
-  trustHost: true,
 };
 
 export default NextAuth(authOptions);
