@@ -1,0 +1,339 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPPLIER
+  CGP_BRANCH
+  TOC_BRANCH
+  QC_BRANCH
+  FRL_FIELD
+  FRL_LAB
+  ADMIN
+}
+
+enum SampleType {
+  SUPPLIER_INITIATED   // Supplier sends sample offer
+  CROSS_SAMPLING       // Godown cross-sample
+}
+
+enum CommodityCategory {
+  CGP   // Coarse Grain & Pulses
+  TOC   // Textile & Other Commodities
+}
+
+enum SampleStatus {
+  DRAFT
+  OFFER_SUBMITTED         // Supplier submitted offer
+  BRANCH_REVIEW           // Branch (CGP/TOC) reviewing
+  BRANCH_APPROVED         // Branch approved, forwarded to FRL
+  FRL_ASSIGNED            // FRL assigned field staff
+  FIELD_SAMPLING          // Field staff out for sampling
+  SAMPLE_RECEIVED_FRL     // Sample received at FRL lab
+  TESTING_IN_PROGRESS     // Lab testing ongoing
+  REPORT_GENERATED        // QC report generated
+  REPORT_COMMUNICATED     // Report sent to all parties
+  REJECTED                // Rejected at any stage
+}
+
+enum TestResult {
+  PASS
+  FAIL
+  CONDITIONAL_PASS
+  PENDING
+}
+
+enum DocumentType {
+  SAMPLE_OFFER
+  FORWARDING_LETTER
+  FIELD_REPORT
+  LAB_RECEIPT
+  QC_REPORT
+  OTHER
+}
+
+// ─── Users & Auth ────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          UserRole
+  phone         String?
+  department    String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  supplierProfile   Supplier?
+  godownManager     GodownManager?
+  sampleOffers      SampleOffer[]         @relation("OfferCreatedBy")
+  crossSamples      CrossSample[]         @relation("CrossSampleCreatedBy")
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  fieldAssignments  FieldSamplingRecord[] @relation("AssignedTo")
+  labRecords        LabTestRecord[]       @relation("LabTechnician")
+  workflowActions   WorkflowAction[]
+}
+
+model Supplier {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id])
+  companyName   String
+  gstin         String?
+  address       String
+  contactPerson String
+  createdAt     DateTime  @default(now())
+
+  sampleOffers  SampleOffer[]
+}
+
+model GodownManager {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id])
+  godownName  String
+  location    String
+  godownCode  String    @unique
+  createdAt   DateTime  @default(now())
+
+  crossSamples CrossSample[]
+}
+
+// ─── Sample Offer (Supplier-Initiated) ───────────────────────────────────────
+
+model SampleOffer {
+  id               String            @id @default(cuid())
+  offerNumber      String            @unique @default(cuid())
+  supplierId       String
+  supplier         Supplier          @relation(fields: [supplierId], references: [id])
+  createdById      String
+  createdBy        User              @relation("OfferCreatedBy", fields: [createdById], references: [id])
+  commodityName    String
+  commodityCode    String
+  category         CommodityCategory
+  quantity         Float
+  unit             String            @default("MT")
+  batchNumber      String
+  manufacturingDate DateTime?
+  expiryDate       DateTime?
+  supplierRemarks  String?
+  status           SampleStatus      @default(OFFER_SUBMITTED)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  // Relations
+  sample           Sample?
+  documents        Document[]
+  workflowActions  WorkflowAction[]
+  auditLogs        AuditLog[]
+}
+
+// ─── Cross Sample (Godown-Initiated) ─────────────────────────────────────────
+
+model CrossSample {
+  id              String    @id @default(cuid())
+  sampleNumber    String    @unique @default(cuid())
+  godownManagerId String
+  godownManager   GodownManager @relation(fields: [godownManagerId], references: [id])
+  createdById     String
+  createdBy       User      @relation("CrossSampleCreatedBy", fields: [createdById], references: [id])
+  godownLocation  String
+  commodityName   String
+  commodityCode   String
+  stockLotNumber  String
+  category        CommodityCategory
+  quantity        Float
+  unit            String    @default("MT")
+  collectionDate  DateTime
+  remarks         String?
+  status          SampleStatus @default(OFFER_SUBMITTED)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  sample          Sample?
+  documents       Document[]
+  workflowActions WorkflowAction[]
+  auditLogs       AuditLog[]
+}
+
+// ─── Core Sample (unified once accepted) ─────────────────────────────────────
+
+model Sample {
+  id              String      @id @default(cuid())
+  sampleCode      String      @unique
+  sampleType      SampleType
+  category        CommodityCategory
+  status          SampleStatus @default(BRANCH_REVIEW)
+  priority        Int          @default(0)   // 0=normal 1=high 2=urgent
+
+  // FK — exactly one of these is set
+  sampleOfferId   String?     @unique
+  sampleOffer     SampleOffer? @relation(fields: [sampleOfferId], references: [id])
+  crossSampleId   String?     @unique
+  crossSample     CrossSample? @relation(fields: [crossSampleId], references: [id])
+
+  // Timestamps
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Timestamps per stage
+  receivedAt      DateTime    @default(now())
+  branchApprovedAt   DateTime?
+  frlAssignedAt      DateTime?
+  fieldSampledAt     DateTime?
+  labReceivedAt      DateTime?
+  testingCompletedAt DateTime?
+  reportGeneratedAt  DateTime?
+  reportSentAt       DateTime?
+
+  // Relations
+  fieldRecord     FieldSamplingRecord?
+  labRecord       LabTestRecord?
+  qcReport        QCReport?
+  documents       Document[]
+  workflowActions WorkflowAction[]
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+}
+
+// ─── Field Sampling ───────────────────────────────────────────────────────────
+
+model FieldSamplingRecord {
+  id              String    @id @default(cuid())
+  sampleId        String    @unique
+  sample          Sample    @relation(fields: [sampleId], references: [id])
+  assignedToId    String
+  assignedTo      User      @relation("AssignedTo", fields: [assignedToId], references: [id])
+  visitDate       DateTime?
+  plantAddress    String?
+  sampleWeightKg  Float?
+  sealNumber      String?
+  observations    String?
+  photosUploaded  Boolean   @default(false)
+  submittedToLab  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// ─── Lab Testing ──────────────────────────────────────────────────────────────
+
+model LabTestRecord {
+  id               String    @id @default(cuid())
+  sampleId         String    @unique
+  sample           Sample    @relation(fields: [sampleId], references: [id])
+  labTechnicianId  String
+  labTechnician    User      @relation("LabTechnician", fields: [labTechnicianId], references: [id])
+  labReceiptDate   DateTime  @default(now())
+  labSampleCode    String?   @unique
+  testParameters   Json      // Array of {param, expected, actual, unit, result}
+  overallResult    TestResult @default(PENDING)
+  testingStartedAt DateTime?
+  testingEndedAt   DateTime?
+  remarks          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  qcReport         QCReport?
+}
+
+// ─── QC Report ────────────────────────────────────────────────────────────────
+
+model QCReport {
+  id              String    @id @default(cuid())
+  reportNumber    String    @unique
+  sampleId        String    @unique
+  sample          Sample    @relation(fields: [sampleId], references: [id])
+  labRecordId     String    @unique
+  labRecord       LabTestRecord @relation(fields: [labRecordId], references: [id])
+  result          TestResult
+  summary         String
+  recommendations String?
+  generatedAt     DateTime  @default(now())
+  communicatedAt  DateTime?
+  pdfUrl          String?
+  createdAt       DateTime  @default(now())
+}
+
+// ─── Documents ────────────────────────────────────────────────────────────────
+
+model Document {
+  id            String       @id @default(cuid())
+  type          DocumentType
+  fileName      String
+  fileUrl       String
+  uploadedAt    DateTime     @default(now())
+
+  sampleOfferId String?
+  sampleOffer   SampleOffer? @relation(fields: [sampleOfferId], references: [id])
+  crossSampleId String?
+  crossSample   CrossSample? @relation(fields: [crossSampleId], references: [id])
+  sampleId      String?
+  sample        Sample?      @relation(fields: [sampleId], references: [id])
+}
+
+// ─── Workflow Actions (timeline) ─────────────────────────────────────────────
+
+model WorkflowAction {
+  id           String       @id @default(cuid())
+  actorId      String
+  actor        User         @relation(fields: [actorId], references: [id])
+  fromStatus   SampleStatus?
+  toStatus     SampleStatus
+  remarks      String?
+  createdAt    DateTime     @default(now())
+
+  sampleOfferId String?
+  sampleOffer   SampleOffer? @relation(fields: [sampleOfferId], references: [id])
+  crossSampleId String?
+  crossSample   CrossSample? @relation(fields: [crossSampleId], references: [id])
+  sampleId      String?
+  sample        Sample?      @relation(fields: [sampleId], references: [id])
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  action        String
+  entity        String
+  entityId      String
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+
+  sampleOfferId String?
+  sampleOffer   SampleOffer? @relation(fields: [sampleOfferId], references: [id])
+  crossSampleId String?
+  crossSample   CrossSample? @relation(fields: [crossSampleId], references: [id])
+  sampleId      String?
+  sample        Sample?      @relation(fields: [sampleId], references: [id])
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  isRead    Boolean   @default(false)
+  link      String?
+  createdAt DateTime  @default(now())
+
+  sampleId  String?
+  sample    Sample?   @relation(fields: [sampleId], references: [id])
+}
