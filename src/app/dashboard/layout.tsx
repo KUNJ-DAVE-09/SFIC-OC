@@ -1,17 +1,14 @@
 export const dynamic = 'force-dynamic';
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { Navbar } from "@/components/Navbar";
+import { AuthGuard } from "@/components/AuthGuard";
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
-
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#f5f5f7" }}>
-      <Navbar />
-      <main style={{ paddingTop: 44 }}>{children}</main>
-    </div>
+    <AuthGuard>
+      <div style={{ minHeight: "100vh", background: "#f5f5f7" }}>
+        <Navbar />
+        <main style={{ paddingTop: 44 }}>{children}</main>
+      </div>
+    </AuthGuard>
   );
 }
