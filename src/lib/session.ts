@@ -1,6 +1,2 @@
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-
-export async function auth() {
-  return getServerSession(authOptions);
-}
+// Re-export auth from Auth.js v5 so API routes can stay unchanged
+export { auth } from "@/auth";

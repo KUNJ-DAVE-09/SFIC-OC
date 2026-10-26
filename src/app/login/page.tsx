@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { signIn, getSession } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { Input, Button } from "@/components/FormElements";
 import { UserRole } from "@prisma/client";
 
@@ -46,16 +46,17 @@ export default function LoginPage() {
       return;
     }
 
-    // Get fresh session to read role
-    const session = await getSession();
+    // Fetch session to get role, then navigate
+    const resp = await fetch("/api/auth/session");
+    const session = await resp.json();
     const role = session?.user?.role as UserRole | undefined;
     const dest = role ? ROLE_HOME[role] : "/dashboard/admin";
     window.location.replace(dest);
   }
 
-  function fillDemo(email: string, password: string) {
-    setEmail(email);
-    setPassword(password);
+  function fillDemo(em: string, pw: string) {
+    setEmail(em);
+    setPassword(pw);
     setError("");
   }
 

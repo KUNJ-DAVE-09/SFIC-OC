@@ -1,10 +1,24 @@
-import NextAuth, { NextAuthOptions } from "next-auth";
+import NextAuth, { type DefaultSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { UserRole } from "@prisma/client";
 
-export const authOptions: NextAuthOptions = {
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      role: UserRole;
+    } & DefaultSession["user"];
+  }
+  interface User {
+    role: UserRole;
+  }
+}
+
+export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     CredentialsProvider({
       name: "credentials",
@@ -19,10 +33,19 @@ export const authOptions: NextAuthOptions = {
             where: { email: credentials.email as string },
           });
           if (!user || !user.isActive) return null;
-          const valid = await bcrypt.compare(credentials.password as string, user.passwordHash);
+          const valid = await bcrypt.compare(
+            credentials.password as string,
+            user.passwordHash
+          );
           if (!valid) return null;
-          return { id: user.id, name: user.name, email: user.email, role: user.role };
-        } catch {
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          };
+        } catch (err) {
+          console.error("Auth error:", err);
           return null;
         }
       },
@@ -31,14 +54,14 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
+        if (user.id) token.id = user.id;
         token.role = (user as { role: UserRole }).role;
       }
       return token;
     },
     async session({ session, token }) {
-      if (token) {
-        session.user.id = token.id as string;
+      if (token?.id) {
+        session.user.id = token.id;
         session.user.role = token.role as UserRole;
       }
       return session;
@@ -48,7 +71,6 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
   },
   session: { strategy: "jwt" },
-  secret: process.env.NEXTAUTH_SECRET,
-};
-
-export default NextAuth(authOptions);
+  secret: process.env.AUTH_SECRET,
+  trustHost: true,
+});
