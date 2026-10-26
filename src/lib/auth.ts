@@ -43,13 +43,6 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
-    async redirect({ url, baseUrl }) {
-      // Always allow relative URLs
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      // Allow same origin
-      if (new URL(url).origin === baseUrl) return url;
-      return baseUrl;
-    },
   },
   pages: {
     signIn: "/login",
