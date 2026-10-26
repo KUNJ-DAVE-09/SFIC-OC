@@ -24,10 +24,13 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const res = await signIn("credentials", { email, password, redirect: false });
+    // Get callbackUrl from query string if present
+    const params = new URLSearchParams(window.location.search);
+    const callbackUrl = params.get("callbackUrl") || "/";
+    const res = await signIn("credentials", { email, password, redirect: false, callbackUrl });
     setLoading(false);
     if (res?.ok) {
-      router.push("/");
+      window.location.href = res.url || callbackUrl;
     } else {
       setError("Invalid email or password.");
     }

@@ -14,13 +14,17 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
-        });
-        if (!user || !user.isActive) return null;
-        const valid = await bcrypt.compare(credentials.password as string, user.passwordHash);
-        if (!valid) return null;
-        return { id: user.id, name: user.name, email: user.email, role: user.role };
+        try {
+          const user = await prisma.user.findUnique({
+            where: { email: credentials.email as string },
+          });
+          if (!user || !user.isActive) return null;
+          const valid = await bcrypt.compare(credentials.password as string, user.passwordHash);
+          if (!valid) return null;
+          return { id: user.id, name: user.name, email: user.email, role: user.role };
+        } catch {
+          return null;
+        }
       },
     }),
   ],
@@ -39,12 +43,21 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      // Always allow relative URLs
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      // Allow same origin
+      if (new URL(url).origin === baseUrl) return url;
+      return baseUrl;
+    },
   },
   pages: {
     signIn: "/login",
   },
   session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
+  // Trust the host header — critical for Vercel
+  trustHost: true,
 };
 
 export default NextAuth(authOptions);
